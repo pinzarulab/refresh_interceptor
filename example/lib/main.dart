@@ -41,22 +41,19 @@ class _DemoPageState extends State<DemoPage> {
     _tokens = MemoryTokenStore('expired-access', 'valid-refresh');
     _api = FakeApiAdapter();
     _dio = Dio()..httpClientAdapter = _api;
-    _dio.interceptors.add(
-      DioRefreshInterceptor(
-        dio: _dio,
-        tokenStore: _tokens,
-        refreshToken: (refreshToken) async {
-          _log('Refreshing with $refreshToken');
-          await Future<void>.delayed(const Duration(milliseconds: 700));
-          _api.refreshCalls++;
-          return const RefreshTokens(
-            accessToken: 'fresh-access',
-            refreshToken: 'rotated-refresh',
-          );
-        },
-        onSessionExpired: () async => _log('Session expired'),
-      ),
-    );
+    RefreshInterceptor(
+      tokenStore: _tokens,
+      onRefresh: (refreshToken) async {
+        _log('Refreshing with $refreshToken');
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        _api.refreshCalls++;
+        return const RefreshTokens(
+          accessToken: 'fresh-access',
+          refreshToken: 'rotated-refresh',
+        );
+      },
+      onSessionExpired: () => _log('Session expired'),
+    ).attachTo(_dio);
   }
 
   void _log(String message) {

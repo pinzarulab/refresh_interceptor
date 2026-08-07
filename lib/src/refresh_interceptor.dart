@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:dio/dio.dart';
 
@@ -7,16 +8,15 @@ import 'types.dart';
 
 const _retriedKey = 'refresh_interceptor.retried';
 
-/// Dio interceptor that attaches access tokens and refreshes expired sessions.
+/// Shared token-refresh manager for one or more Dio clients.
 ///
-/// Concurrent 401 responses share one refresh operation. Requests that failed
-/// with an already-stale access token reuse the token produced by that operation
-/// instead of starting another refresh.
-final class DioRefreshInterceptor extends Interceptor {
-  DioRefreshInterceptor({
-    required this.dio,
+/// Create one instance per authenticated session, then call [attachTo] for
+/// every authenticated Dio client. All attached clients share one in-flight
+/// refresh operation and one session-expiry notification.
+final class RefreshInterceptor {
+  RefreshInterceptor({
     required this.tokenStore,
-    required this.refreshToken,
+    required this.onRefresh,
     required this.onSessionExpired,
     this.shouldRefresh = _defaultShouldRefresh,
     this.shouldAttachToken = _alwaysAttach,
@@ -24,12 +24,11 @@ final class DioRefreshInterceptor extends Interceptor {
     this.tokenPrefix = 'Bearer',
     this.rejectIfTokenMissing = false,
     this.clearTokensOnRefreshFailure = true,
-    this.onRefreshFailure,
+    this.onError,
   });
 
-  final Dio dio;
   final TokenStore tokenStore;
-  final RefreshTokenCallback refreshToken;
+  final RefreshTokenCallback onRefresh;
   final SessionExpiredCallback onSessionExpired;
   final RefreshErrorPredicate shouldRefresh;
   final RequestPredicate shouldAttachToken;
@@ -37,17 +36,51 @@ final class DioRefreshInterceptor extends Interceptor {
   final String tokenPrefix;
   final bool rejectIfTokenMissing;
   final bool clearTokensOnRefreshFailure;
-  final RefreshFailureCallback? onRefreshFailure;
 
+  /// Receives refresh, storage, and session callback errors.
+  final RefreshInterceptorErrorCallback? onError;
+
+  final Map<Dio, Interceptor> _attached = HashMap<Dio, Interceptor>.identity();
   Future<bool>? _refreshFuture;
   bool _sessionExpiredNotified = false;
+  String? _expiredAccessToken;
 
-  /// Starts a refresh or joins the refresh currently in flight.
+  /// Adds this refresh manager to [dio]. Calling this twice for the same Dio is
+  /// safe; only one bound interceptor is installed.
+  void attachTo(Dio dio) {
+    if (_attached.containsKey(dio)) return;
+    final interceptor = _BoundRefreshInterceptor(dio: dio, owner: this);
+    _attached[dio] = interceptor;
+    dio.interceptors.add(interceptor);
+  }
+
+  /// Adds this refresh manager to every Dio client in [clients].
+  void attachToAll(Iterable<Dio> clients) {
+    for (final dio in clients) {
+      attachTo(dio);
+    }
+  }
+
+  /// Removes this manager's bound interceptor from [dio].
+  void detachFrom(Dio dio) {
+    final interceptor = _attached.remove(dio);
+    if (interceptor != null) dio.interceptors.remove(interceptor);
+  }
+
+  /// Starts a proactive refresh or joins the refresh currently in flight.
   ///
-  /// This can be used for proactive refresh. Intercepted responses call it
-  /// automatically. It returns false without expiring the session; callers of
-  /// this method decide how proactive-refresh failure should affect the UI.
+  /// Returns false without expiring the session. Callers decide how proactive
+  /// refresh failure affects their UI.
   Future<bool> refreshAccessToken() => _refreshOnce();
+
+  /// Starts a new session lifecycle explicitly.
+  ///
+  /// Usually unnecessary: seeing a token different from the expired token
+  /// resets expiry state automatically.
+  void resetSession() {
+    _sessionExpiredNotified = false;
+    _expiredAccessToken = null;
+  }
 
   static bool _defaultShouldRefresh(DioException error) =>
       error.response?.statusCode == 401;
@@ -59,92 +92,9 @@ final class DioRefreshInterceptor extends Interceptor {
     return '$tokenPrefix $token';
   }
 
-  @override
-  void onRequest(
-    RequestOptions options,
-    RequestInterceptorHandler handler,
-  ) async {
-    if (!shouldAttachToken(options)) {
-      handler.next(options);
-      return;
-    }
-
-    try {
-      final accessToken = await tokenStore.readAccessToken();
-      if (accessToken == null || accessToken.isEmpty) {
-        if (!rejectIfTokenMissing) {
-          handler.next(options);
-          return;
-        }
-
-        await _notifySessionExpired();
-        handler.reject(
-          DioException(
-            requestOptions: options,
-            response: Response<void>(requestOptions: options, statusCode: 401),
-            error: const {'reason': 'no_token'},
-            type: DioExceptionType.badResponse,
-          ),
-        );
-        return;
-      }
-
-      options.headers[authorizationHeader] = _authorizationValue(accessToken);
-      handler.next(options);
-    } catch (error, stack) {
-      handler.reject(
-        DioException(
-          requestOptions: options,
-          error: error,
-          stackTrace: stack,
-          type: DioExceptionType.unknown,
-        ),
-      );
-    }
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) async {
-    final options = err.requestOptions;
-    if (!shouldRefresh(err) || options.extra[_retriedKey] == true) {
-      handler.next(err);
-      return;
-    }
-
-    try {
-      final currentToken = await tokenStore.readAccessToken();
-      final requestAuthorization = options.headers[authorizationHeader];
-
-      // Another request may already have refreshed while this response traveled.
-      if (currentToken != null &&
-          requestAuthorization != _authorizationValue(currentToken)) {
-        await _retry(err, currentToken, handler);
-        return;
-      }
-
-      final refreshed = await _refreshOnce();
-      if (refreshed) {
-        final newToken = await tokenStore.readAccessToken();
-        if (newToken != null && newToken.isNotEmpty) {
-          await _retry(err, newToken, handler);
-          return;
-        }
-      }
-
-      if (clearTokensOnRefreshFailure) await tokenStore.clearTokens();
-      await _notifySessionExpired();
-      handler.next(err);
-    } catch (refreshError, stack) {
-      onRefreshFailure?.call(refreshError, stack);
-      if (clearTokensOnRefreshFailure) {
-        try {
-          await tokenStore.clearTokens();
-        } catch (clearError, clearStack) {
-          onRefreshFailure?.call(clearError, clearStack);
-        }
-      }
-      await _notifySessionExpired();
-      handler.next(err);
+  void _observeAccessToken(String token) {
+    if (_sessionExpiredNotified && token != _expiredAccessToken) {
+      resetSession();
     }
   }
 
@@ -169,39 +119,161 @@ final class DioRefreshInterceptor extends Interceptor {
         return false;
       }
 
-      final tokens = await refreshToken(storedRefreshToken);
+      final tokens = await onRefresh(storedRefreshToken);
       if (tokens == null || tokens.accessToken.isEmpty) return false;
 
       await tokenStore.saveTokens(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       );
-      _sessionExpiredNotified = false;
+      resetSession();
       return true;
     } catch (error, stack) {
-      onRefreshFailure?.call(error, stack);
+      onError?.call(error, stack);
       return false;
     }
   }
 
+  Future<void> _expireSession(String? accessToken) async {
+    if (_sessionExpiredNotified) return;
+    _sessionExpiredNotified = true;
+    _expiredAccessToken = accessToken;
+
+    if (clearTokensOnRefreshFailure) {
+      try {
+        await tokenStore.clearTokens();
+      } catch (error, stack) {
+        onError?.call(error, stack);
+      }
+    }
+
+    try {
+      await onSessionExpired();
+    } catch (error, stack) {
+      onError?.call(error, stack);
+    }
+  }
+}
+
+final class _BoundRefreshInterceptor extends Interceptor {
+  _BoundRefreshInterceptor({required this.dio, required this.owner});
+
+  final Dio dio;
+  final RefreshInterceptor owner;
+
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    if (!owner.shouldAttachToken(options)) {
+      handler.next(options);
+      return;
+    }
+
+    try {
+      final accessToken = await owner.tokenStore.readAccessToken();
+      if (accessToken == null || accessToken.isEmpty) {
+        if (!owner.rejectIfTokenMissing) {
+          handler.next(options);
+          return;
+        }
+
+        await owner._expireSession(null);
+        handler.reject(
+          DioException(
+            requestOptions: options,
+            response: Response<void>(requestOptions: options, statusCode: 401),
+            error: const {'reason': 'no_token'},
+            type: DioExceptionType.badResponse,
+          ),
+        );
+        return;
+      }
+
+      owner._observeAccessToken(accessToken);
+      options.headers[owner.authorizationHeader] =
+          owner._authorizationValue(accessToken);
+      handler.next(options);
+    } catch (error, stack) {
+      owner.onError?.call(error, stack);
+      handler.reject(
+        DioException(
+          requestOptions: options,
+          error: error,
+          stackTrace: stack,
+          type: DioExceptionType.unknown,
+        ),
+      );
+    }
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    final options = err.requestOptions;
+    if (!owner.shouldRefresh(err) || options.extra[_retriedKey] == true) {
+      handler.next(err);
+      return;
+    }
+
+    String? currentToken;
+    try {
+      currentToken = await owner.tokenStore.readAccessToken();
+      final requestAuthorization = options.headers[owner.authorizationHeader];
+
+      // Another request or Dio client refreshed while this response traveled.
+      if (currentToken != null &&
+          requestAuthorization != owner._authorizationValue(currentToken)) {
+        await _retry(err, currentToken, handler);
+        return;
+      }
+
+      final refreshed = await owner._refreshOnce();
+      if (refreshed) {
+        final newToken = await owner.tokenStore.readAccessToken();
+        if (newToken != null && newToken.isNotEmpty) {
+          await _retry(err, newToken, handler);
+          return;
+        }
+      }
+
+      await owner._expireSession(currentToken);
+      handler.next(err);
+    } catch (error, stack) {
+      owner.onError?.call(error, stack);
+      await owner._expireSession(currentToken);
+      handler.next(err);
+    }
+  }
+
   Future<void> _retry(
-    DioException error,
+    DioException originalError,
     String accessToken,
     ErrorInterceptorHandler handler,
   ) async {
-    final options = error.requestOptions;
+    final options = originalError.requestOptions;
     options.extra[_retriedKey] = true;
-    options.headers[authorizationHeader] = _authorizationValue(accessToken);
-    final response = await dio.fetch<dynamic>(options);
-    handler.resolve(response);
-  }
+    options.headers[owner.authorizationHeader] =
+        owner._authorizationValue(accessToken);
 
-  Future<void> _notifySessionExpired() async {
-    if (_sessionExpiredNotified) return;
-    _sessionExpiredNotified = true;
-    await onSessionExpired();
+    try {
+      final response = await dio.fetch<dynamic>(options);
+      handler.resolve(response);
+    } on DioException catch (retryError) {
+      if (owner.shouldRefresh(retryError)) {
+        await owner._expireSession(accessToken);
+      }
+      handler.next(retryError);
+    } catch (error, stack) {
+      owner.onError?.call(error, stack);
+      handler.next(
+        DioException(
+          requestOptions: options,
+          error: error,
+          stackTrace: stack,
+          type: DioExceptionType.unknown,
+        ),
+      );
+    }
   }
-
-  /// Allows a newly authenticated session to emit future expiry callbacks.
-  void resetSession() => _sessionExpiredNotified = false;
 }

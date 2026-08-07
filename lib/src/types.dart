@@ -19,4 +19,7 @@ typedef RefreshTokenCallback = Future<RefreshTokens?> Function(
 typedef SessionExpiredCallback = FutureOr<void> Function();
 typedef RefreshErrorPredicate = bool Function(DioException error);
 typedef RequestPredicate = bool Function(RequestOptions options);
-typedef RefreshFailureCallback = void Function(Object error, StackTrace stack);
+typedef RefreshInterceptorErrorCallback = void Function(
+  Object error,
+  StackTrace stack,
+);

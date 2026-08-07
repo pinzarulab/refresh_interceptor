@@ -1,59 +1,44 @@
 # refresh_interceptor
 
-Reusable token refresh interceptor for Dio. It removes app-specific dependencies
-from auth retry logic while keeping storage, endpoint shape, and logout behavior
-under app control.
+Shared token refresh for Dio. One setup works with one or many authenticated
+Dio clients.
 
-## Features
+## What it handles
 
-- Adds access token to outgoing requests.
-- Runs only one refresh for concurrent expired requests.
+- Adds access tokens to requests.
+- Shares one refresh across concurrent requests and Dio clients.
 - Retries each failed request once with newest token.
 - Supports refresh-token rotation.
 - Prevents refresh loops.
-- Supports custom expiry rules, auth schemes, public routes, and session cleanup.
+- Emits session expiry once per login session.
+- Detects a newly stored login token automatically.
+- Supports custom auth schemes, expiry rules, and public routes.
 - Has no service-locator or state-management dependency.
 
 ## Setup
 
-Implement `TokenStore` using secure storage or your existing local data source:
+Use `TokenStoreAdapter` to connect existing storage methods. No extra adapter
+class needed:
 
 ```dart
-final class AppTokenStore implements TokenStore {
-  @override
-  Future<String?> readAccessToken() => storage.read(key: 'access');
-
-  @override
-  Future<String?> readRefreshToken() => storage.read(key: 'refresh');
-
-  @override
-  Future<void> saveTokens({
-    required String accessToken,
-    String? refreshToken,
-  }) async {
-    await storage.write(key: 'access', value: accessToken);
-    if (refreshToken != null) {
-      await storage.write(key: 'refresh', value: refreshToken);
-    }
-  }
-
-  @override
-  Future<void> clearTokens() => storage.deleteAll();
-}
+final tokenStore = TokenStoreAdapter(
+  readAccessToken: authLocal.getAccessToken,
+  readRefreshToken: authLocal.getRefreshToken,
+  saveTokens: authLocal.updateTokens,
+  clearTokens: authLocal.clearTokens,
+);
 ```
 
-Use a separate Dio instance for refresh calls. This avoids the refresh request
-passing through the same interceptor:
+Create one `RefreshInterceptor` for the authenticated session. Use a separate
+Dio client for refresh calls so refresh never intercepts itself:
 
 ```dart
 final apiDio = Dio(BaseOptions(baseUrl: 'https://api.example.com'));
 final refreshDio = Dio(BaseOptions(baseUrl: 'https://api.example.com'));
-final tokenStore = AppTokenStore();
 
-final authInterceptor = DioRefreshInterceptor(
-  dio: apiDio,
+final auth = RefreshInterceptor(
   tokenStore: tokenStore,
-  refreshToken: (refreshToken) async {
+  onRefresh: (refreshToken) async {
     final response = await refreshDio.post<Map<String, dynamic>>(
       '/authorization/token/refresh/',
       data: {'refresh': refreshToken},
@@ -64,27 +49,55 @@ final authInterceptor = DioRefreshInterceptor(
       refreshToken: data['refresh'] as String?,
     );
   },
-  onSessionExpired: () async {
+  onSessionExpired: () {
     // Reset app state or navigate to login.
   },
 );
 
-apiDio.interceptors.add(authInterceptor);
+auth.attachTo(apiDio);
 ```
 
-Default auth header is `Authorization: Bearer <token>`. For another scheme:
+For multiple authenticated clients, attach the same instance:
 
 ```dart
-DioRefreshInterceptor(
+auth.attachToAll([
+  appDio,
+  insuranceDio,
+  notificationDio,
+]);
+```
+
+All clients now share one in-flight refresh. This matters when servers rotate
+refresh tokens.
+
+## Existing token repositories
+
+`TokenStoreAdapter` accepts method tear-offs matching this common API:
+
+```dart
+Future<String?> getAccessToken();
+Future<String?> getRefreshToken();
+Future<void> updateTokens(String accessToken, String? refreshToken);
+Future<void> clearTokens();
+```
+
+You can also implement `TokenStore` directly.
+
+## Configuration
+
+Default header is `Authorization: Bearer <token>`. Change scheme:
+
+```dart
+final auth = RefreshInterceptor(
   // ...
   tokenPrefix: 'Token',
 );
 ```
 
-Customize protected routes and expiry response detection:
+Customize protected routes and expiry detection:
 
 ```dart
-DioRefreshInterceptor(
+final auth = RefreshInterceptor(
   // ...
   shouldAttachToken: (request) => !request.path.startsWith('/public/'),
   shouldRefresh: (error) {
@@ -93,16 +106,32 @@ DioRefreshInterceptor(
         data is Map && data['code'] == 'token_expired';
   },
   rejectIfTokenMissing: true,
+  clearTokensOnRefreshFailure: false,
+  onError: (error, stackTrace) {
+    logger.error('Auth interceptor error', error, stackTrace);
+  },
 );
 ```
 
-Call `authInterceptor.resetSession()` after a new login if the same interceptor
-instance survives logout and login.
+## Session lifecycle
+
+Session-expiry callback fires once for concurrent failures. When a new access
+token appears after login, expiry state resets automatically. Call
+`auth.resetSession()` only when an app reuses exactly the same token value for a
+new session.
+
+## Proactive refresh and detach
+
+```dart
+final success = await auth.refreshAccessToken();
+auth.detachFrom(apiDio);
+```
+
+Proactive failure returns false without expiring session.
 
 ## Retry note
 
 Dio request bodies backed by one-shot streams cannot always be replayed. Buffer
 upload data when requests must survive token refresh.
 
-See `example/` for a runnable Flutter app with an in-memory fake API.
-
+See `example/` for runnable Android, iOS, and web Flutter app.

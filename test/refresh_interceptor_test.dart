@@ -7,83 +7,77 @@ import 'package:refresh_interceptor/refresh_interceptor.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('DioRefreshInterceptor', () {
-    test('attaches the configured authorization header', () async {
+  group('RefreshInterceptor', () {
+    test('attaches with one call and never attaches twice', () async {
       final store = MemoryTokenStore('access', 'refresh');
-      final adapter = RecordingAdapter((options) => _json({'ok': true}, 200));
+      final adapter = RecordingAdapter((_) => _json({'ok': true}, 200));
       final dio = Dio()..httpClientAdapter = adapter;
-      dio.interceptors.add(
-        DioRefreshInterceptor(
-          dio: dio,
-          tokenStore: store,
-          tokenPrefix: 'Token',
-          refreshToken: (_) async => null,
-          onSessionExpired: () async {},
-        ),
+      final initialInterceptorCount = dio.interceptors.length;
+      final auth = RefreshInterceptor(
+        tokenStore: store,
+        tokenPrefix: 'Token',
+        onRefresh: (_) async => null,
+        onSessionExpired: () {},
       );
 
+      auth.attachTo(dio);
+      auth.attachTo(dio);
       await dio.get<void>('/protected');
 
+      expect(dio.interceptors, hasLength(initialInterceptorCount + 1));
       expect(adapter.requests.single.headers['Authorization'], 'Token access');
     });
 
-    test('concurrent failures share one refresh and all retry', () async {
+    test('all attached Dio clients share one refresh', () async {
       final store = MemoryTokenStore('old-access', 'old-refresh');
       var refreshCalls = 0;
-      final adapter = RecordingAdapter((options) {
-        final token = options.headers['Authorization'];
-        return token == 'Bearer new-access'
-            ? _json({'ok': true}, 200)
-            : _json({'code': 'token_expired'}, 401);
-      });
-      final dio = Dio()..httpClientAdapter = adapter;
-      dio.interceptors.add(
-        DioRefreshInterceptor(
-          dio: dio,
-          tokenStore: store,
-          refreshToken: (_) async {
-            refreshCalls++;
-            await Future<void>.delayed(const Duration(milliseconds: 20));
-            return const RefreshTokens(
-              accessToken: 'new-access',
-              refreshToken: 'new-refresh',
-            );
-          },
-          onSessionExpired: () async {},
-        ),
+      final firstAdapter = RecordingAdapter(_requiresNewToken);
+      final secondAdapter = RecordingAdapter(_requiresNewToken);
+      final firstDio = Dio()..httpClientAdapter = firstAdapter;
+      final secondDio = Dio()..httpClientAdapter = secondAdapter;
+      final auth = RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async {
+          refreshCalls++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return const RefreshTokens(
+            accessToken: 'new-access',
+            refreshToken: 'new-refresh',
+          );
+        },
+        onSessionExpired: () {},
       );
+      auth.attachToAll([firstDio, secondDio]);
 
       final responses = await Future.wait([
-        dio.get<Map<String, dynamic>>('/one'),
-        dio.get<Map<String, dynamic>>('/two'),
-        dio.get<Map<String, dynamic>>('/three'),
+        firstDio.get<Map<String, dynamic>>('/one'),
+        secondDio.get<Map<String, dynamic>>('/two'),
+        firstDio.get<Map<String, dynamic>>('/three'),
       ]);
 
       expect(responses, hasLength(3));
       expect(refreshCalls, 1);
       expect(store.accessToken, 'new-access');
       expect(store.refreshToken, 'new-refresh');
-      expect(adapter.requests, hasLength(6));
+      expect(firstAdapter.requests, hasLength(4));
+      expect(secondAdapter.requests, hasLength(2));
     });
 
     test(
       'preserves stored refresh token when server does not rotate it',
       () async {
         final store = MemoryTokenStore('old', 'keep-me');
-        final adapter = RecordingAdapter(
-          (options) => options.headers['Authorization'] == 'Bearer new'
-              ? _json({'ok': true}, 200)
-              : _json({}, 401),
-        );
-        final dio = Dio()..httpClientAdapter = adapter;
-        dio.interceptors.add(
-          DioRefreshInterceptor(
-            dio: dio,
-            tokenStore: store,
-            refreshToken: (_) async => const RefreshTokens(accessToken: 'new'),
-            onSessionExpired: () async {},
-          ),
-        );
+        final dio = Dio()
+          ..httpClientAdapter = RecordingAdapter(
+            (options) => options.headers['Authorization'] == 'Bearer new'
+                ? _json({'ok': true}, 200)
+                : _json({}, 401),
+          );
+        RefreshInterceptor(
+          tokenStore: store,
+          onRefresh: (_) async => const RefreshTokens(accessToken: 'new'),
+          onSessionExpired: () {},
+        ).attachTo(dio);
 
         await dio.get<void>('/protected');
 
@@ -91,34 +85,28 @@ void main() {
       },
     );
 
-    test('failed refresh clears tokens and expires session once', () async {
+    test('failed refresh expires session once across Dio clients', () async {
       final store = MemoryTokenStore('old', 'bad-refresh');
       var expiredCalls = 0;
       var refreshCalls = 0;
-      final adapter = RecordingAdapter((_) => _json({}, 401));
-      final dio = Dio()..httpClientAdapter = adapter;
-      dio.interceptors.add(
-        DioRefreshInterceptor(
-          dio: dio,
-          tokenStore: store,
-          refreshToken: (_) async {
-            refreshCalls++;
-            await Future<void>.delayed(const Duration(milliseconds: 20));
-            return null;
-          },
-          onSessionExpired: () async => expiredCalls++,
-        ),
+      final firstDio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      final secondDio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      final auth = RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async {
+          refreshCalls++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return null;
+        },
+        onSessionExpired: () => expiredCalls++,
       );
+      auth.attachToAll([firstDio, secondDio]);
 
       final results = await Future.wait([
-        dio
-            .get<void>('/one')
-            .then<Object>((value) => value)
-            .catchError((Object e) => e),
-        dio
-            .get<void>('/two')
-            .then<Object>((value) => value)
-            .catchError((Object e) => e),
+        _captureError(firstDio.get<void>('/one')),
+        _captureError(secondDio.get<void>('/two')),
       ]);
 
       expect(results, everyElement(isA<DioException>()));
@@ -128,30 +116,105 @@ void main() {
       expect(store.refreshToken, isNull);
     });
 
+    test('a different login token starts a new session automatically',
+        () async {
+      final store = MemoryTokenStore('first-access', 'first-refresh');
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      final auth = RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async => null,
+        onSessionExpired: () => expiredCalls++,
+      );
+      auth.attachTo(dio);
+
+      await _captureError(dio.get<void>('/first-session'));
+      store
+        ..accessToken = 'second-access'
+        ..refreshToken = 'second-refresh';
+      await _captureError(dio.get<void>('/second-session'));
+
+      expect(expiredCalls, 2);
+    });
+
+    test('non-auth retry error does not expire a refreshed session', () async {
+      final store = MemoryTokenStore('old', 'refresh');
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter(
+          (options) => options.headers['Authorization'] == 'Bearer new'
+              ? _json({'error': 'server'}, 500)
+              : _json({}, 401),
+        );
+      RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async => const RefreshTokens(accessToken: 'new'),
+        onSessionExpired: () => expiredCalls++,
+      ).attachTo(dio);
+
+      final error = await _captureError(dio.get<void>('/protected'));
+
+      expect(error, isA<DioException>());
+      expect((error as DioException).response?.statusCode, 500);
+      expect(expiredCalls, 0);
+      expect(store.accessToken, 'new');
+    });
+
     test('never refreshes a retried request twice', () async {
       final store = MemoryTokenStore('old', 'refresh');
       var refreshCalls = 0;
+      var expiredCalls = 0;
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
-      dio.interceptors.add(
-        DioRefreshInterceptor(
-          dio: dio,
-          tokenStore: store,
-          refreshToken: (_) async {
-            refreshCalls++;
-            return const RefreshTokens(accessToken: 'still-invalid');
-          },
-          onSessionExpired: () async {},
-        ),
-      );
+      RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async {
+          refreshCalls++;
+          return const RefreshTokens(accessToken: 'still-invalid');
+        },
+        onSessionExpired: () => expiredCalls++,
+      ).attachTo(dio);
 
       await expectLater(
         dio.get<void>('/protected'),
         throwsA(isA<DioException>()),
       );
       expect(refreshCalls, 1);
+      expect(expiredCalls, 1);
+    });
+
+    test('TokenStoreAdapter accepts existing method tear-offs', () async {
+      final existing = MemoryTokenStore('access', 'refresh');
+      final adapter = TokenStoreAdapter(
+        readAccessToken: existing.readAccessToken,
+        readRefreshToken: existing.readRefreshToken,
+        saveTokens: existing.updateTokens,
+        clearTokens: existing.clearTokens,
+      );
+
+      await adapter.saveTokens(
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+      );
+
+      expect(await adapter.readAccessToken(), 'new-access');
+      expect(await adapter.readRefreshToken(), 'new-refresh');
     });
   });
+}
+
+ResponseBody _requiresNewToken(RequestOptions options) =>
+    options.headers['Authorization'] == 'Bearer new-access'
+        ? _json({'ok': true}, 200)
+        : _json({'code': 'token_expired'}, 401);
+
+Future<Object> _captureError(Future<Object?> request) async {
+  try {
+    return (await request) ?? Object();
+  } catch (error) {
+    return error;
+  }
 }
 
 final class MemoryTokenStore implements TokenStore {
@@ -166,14 +229,17 @@ final class MemoryTokenStore implements TokenStore {
   @override
   Future<String?> readRefreshToken() async => refreshToken;
 
+  Future<void> updateTokens(String accessToken, String? refreshToken) async {
+    this.accessToken = accessToken;
+    if (refreshToken != null) this.refreshToken = refreshToken;
+  }
+
   @override
   Future<void> saveTokens({
     required String accessToken,
     String? refreshToken,
-  }) async {
-    this.accessToken = accessToken;
-    if (refreshToken != null) this.refreshToken = refreshToken;
-  }
+  }) =>
+      updateTokens(accessToken, refreshToken);
 
   @override
   Future<void> clearTokens() async {
