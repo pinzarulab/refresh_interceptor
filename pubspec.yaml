@@ -1,6 +1,7 @@
 name: refresh_interceptor
 description: Reusable Dio interceptor for attaching access tokens, refreshing them once, and retrying failed requests.
-version: 0.1.0
+version: 0.2.0
+repository: https://github.com/pinzarulab/refresh_interceptor
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

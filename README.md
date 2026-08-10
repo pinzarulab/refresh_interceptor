@@ -39,15 +39,21 @@ final refreshDio = Dio(BaseOptions(baseUrl: 'https://api.example.com'));
 final auth = RefreshInterceptor(
   tokenStore: tokenStore,
   onRefresh: (refreshToken) async {
-    final response = await refreshDio.post<Map<String, dynamic>>(
-      '/authorization/token/refresh/',
-      data: {'refresh': refreshToken},
-    );
-    final data = response.data!;
-    return RefreshTokens(
-      accessToken: data['access'] as String,
-      refreshToken: data['refresh'] as String?,
-    );
+    try {
+      final response = await refreshDio.post<Map<String, dynamic>>(
+        '/authorization/token/refresh/',
+        data: {'refresh': refreshToken},
+      );
+      final data = response.data!;
+      return RefreshTokens(
+        accessToken: data['access'] as String,
+        refreshToken: data['refresh'] as String?,
+      );
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status == 400 || status == 401) return null;
+      rethrow;
+    }
   },
   onSessionExpired: () {
     // Reset app state or navigate to login.
@@ -117,8 +123,19 @@ final auth = RefreshInterceptor(
 
 Session-expiry callback fires once for concurrent failures. When a new access
 token appears after login, expiry state resets automatically. Call
-`auth.resetSession()` only when an app reuses exactly the same token value for a
-new session.
+`auth.resetSession()` before replacing stored tokens during login, logout, or
+account switching. This prevents a refresh started by the previous session from
+overwriting the new one.
+
+## Refresh failure semantics
+
+Return `null` from `onRefresh` when the server permanently rejects the refresh
+token. The interceptor then clears tokens, according to
+`clearTokensOnRefreshFailure`, and reports session expiry.
+
+Throw for temporary failures such as timeouts, connection errors, and server
+errors. These failures are sent to `onError`; stored tokens remain intact and
+the session is not expired. The original request error continues to its caller.
 
 ## Proactive refresh and detach
 

@@ -1,3 +1,15 @@
+## 0.2.0
+
+- Kept tokens and session state intact when refresh fails because of a
+  transient exception, such as a network or storage error.
+- Prevented stale refresh operations from overwriting a reset login session.
+- Prevented excluded requests from triggering refresh or session expiry.
+- Guarded predicates and error callbacks so callback failures cannot strand
+  Dio interceptor handlers.
+- Protected newer stored tokens from session expiry caused by an older retry.
+- Added regression coverage for refresh failures, public routes, session
+  replacement, and callback errors.
+
 ## 0.1.0
 
 - Initial release with token injection, single-flight refresh, request retry,

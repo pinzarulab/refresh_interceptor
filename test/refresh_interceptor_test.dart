@@ -116,6 +116,136 @@ void main() {
       expect(store.refreshToken, isNull);
     });
 
+    test('transient refresh errors do not clear or expire the session',
+        () async {
+      final store = MemoryTokenStore('old-access', 'refresh');
+      final reportedErrors = <Object>[];
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async => throw StateError('network unavailable'),
+        onSessionExpired: () => expiredCalls++,
+        onError: (error, _) => reportedErrors.add(error),
+      ).attachTo(dio);
+
+      final error = await _captureError(dio.get<void>('/protected'));
+
+      expect(error, isA<DioException>());
+      expect((error as DioException).response?.statusCode, 401);
+      expect(expiredCalls, 0);
+      expect(store.accessToken, 'old-access');
+      expect(store.refreshToken, 'refresh');
+      expect(reportedErrors.single, isA<StateError>());
+    });
+
+    test('excluded requests never refresh or expire the session', () async {
+      final store = MemoryTokenStore('access', 'refresh');
+      var refreshCalls = 0;
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      RefreshInterceptor(
+        tokenStore: store,
+        shouldAttachToken: (request) => !request.path.startsWith('/public'),
+        onRefresh: (_) async {
+          refreshCalls++;
+          return null;
+        },
+        onSessionExpired: () => expiredCalls++,
+      ).attachTo(dio);
+
+      await _captureError(dio.get<void>('/public/info'));
+
+      expect(refreshCalls, 0);
+      expect(expiredCalls, 0);
+      expect(store.accessToken, 'access');
+    });
+
+    test('a token appearing during a missing-token check is preserved',
+        () async {
+      final store = LoginDuringReadTokenStore();
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter(
+          (options) => options.headers['Authorization'] == 'Bearer new-access'
+              ? _json({'ok': true}, 200)
+              : _json({}, 401),
+        );
+      RefreshInterceptor(
+        tokenStore: store,
+        rejectIfTokenMissing: true,
+        onRefresh: (_) async => null,
+        onSessionExpired: () => expiredCalls++,
+      ).attachTo(dio);
+
+      await dio.get<void>('/protected');
+
+      expect(expiredCalls, 0);
+      expect(store.clearCalls, 0);
+    });
+
+    test('an old refresh cannot overwrite a reset session', () async {
+      final store = MemoryTokenStore('old-access', 'old-refresh');
+      final refreshStarted = Completer<void>();
+      final finishRefresh = Completer<RefreshTokens?>();
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter(
+          (options) => options.headers['Authorization'] == 'Bearer login-access'
+              ? _json({'ok': true}, 200)
+              : _json({}, 401),
+        );
+      final auth = RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) {
+          refreshStarted.complete();
+          return finishRefresh.future;
+        },
+        onSessionExpired: () => expiredCalls++,
+      )..attachTo(dio);
+
+      final request = dio.get<void>('/protected');
+      await refreshStarted.future;
+      auth.resetSession();
+      store
+        ..accessToken = 'login-access'
+        ..refreshToken = 'login-refresh';
+      finishRefresh.complete(
+        const RefreshTokens(
+          accessToken: 'stale-access',
+          refreshToken: 'stale-refresh',
+        ),
+      );
+
+      await request;
+      expect(store.accessToken, 'login-access');
+      expect(store.refreshToken, 'login-refresh');
+      expect(expiredCalls, 0);
+    });
+
+    test('throwing predicates and error reporters cannot strand requests',
+        () async {
+      final store = MemoryTokenStore('access', 'refresh');
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      RefreshInterceptor(
+        tokenStore: store,
+        shouldRefresh: (_) => throw StateError('predicate failed'),
+        onRefresh: (_) async => null,
+        onSessionExpired: () {},
+        onError: (_, __) => throw StateError('reporter failed'),
+      ).attachTo(dio);
+
+      final error = await _captureError(
+        dio.get<void>('/protected').timeout(const Duration(seconds: 1)),
+      );
+
+      expect(error, isA<DioException>());
+      expect(store.accessToken, 'access');
+    });
+
     test('a different login token starts a new session automatically',
         () async {
       final store = MemoryTokenStore('first-access', 'first-refresh');
@@ -246,6 +376,27 @@ final class MemoryTokenStore implements TokenStore {
     accessToken = null;
     refreshToken = null;
   }
+}
+
+final class LoginDuringReadTokenStore implements TokenStore {
+  var _accessReads = 0;
+  var clearCalls = 0;
+
+  @override
+  Future<String?> readAccessToken() async =>
+      _accessReads++ == 0 ? null : 'new-access';
+
+  @override
+  Future<String?> readRefreshToken() async => 'new-refresh';
+
+  @override
+  Future<void> saveTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {}
+
+  @override
+  Future<void> clearTokens() async => clearCalls++;
 }
 
 final class RecordingAdapter implements HttpClientAdapter {
