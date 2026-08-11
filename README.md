@@ -183,3 +183,9 @@ Dio request bodies backed by one-shot streams cannot always be replayed. Buffer
 upload data when requests must survive token refresh.
 
 See `example/` for runnable Android, iOS, and web Flutter app.
+
+## More documentation
+
+- [Package guide](docs/package-guide.md)
+- [Session API contract](docs/session-api-contract.md)
+- [TimelyFrontEnd integration](docs/timely-frontend-integration.md)
