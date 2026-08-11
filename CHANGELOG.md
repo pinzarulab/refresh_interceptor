@@ -1,3 +1,10 @@
+# 0.2.3
+
+- Replaced the in-memory example adapter with a runnable Dart HTTP server that
+  mirrors the Session API login, refresh, profile, and auth-error responses.
+- Added example scenarios for concurrent single-flight refresh and permanent
+  session expiry.
+
 ## 0.2.2
 
 - Stopped missing-token request rejection from emitting session expiry by
