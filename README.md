@@ -39,21 +39,15 @@ final refreshDio = Dio(BaseOptions(baseUrl: 'https://api.example.com'));
 final auth = RefreshInterceptor(
   tokenStore: tokenStore,
   onRefresh: (refreshToken) async {
-    try {
-      final response = await refreshDio.post<Map<String, dynamic>>(
-        '/authorization/token/refresh/',
-        data: {'refresh': refreshToken},
-      );
-      final data = response.data!;
-      return RefreshTokens(
-        accessToken: data['access'] as String,
-        refreshToken: data['refresh'] as String?,
-      );
-    } on DioException catch (error) {
-      final status = error.response?.statusCode;
-      if (status == 400 || status == 401) return null;
-      rethrow;
-    }
+    final response = await refreshDio.post<Map<String, dynamic>>(
+      '/authorization/token/refresh/',
+      data: {'refresh': refreshToken},
+    );
+    final data = response.data!;
+    return RefreshTokens(
+      accessToken: data['access'] as String,
+      refreshToken: data['refresh'] as String?,
+    );
   },
   onSessionExpired: () {
     // Reset app state or navigate to login.
@@ -62,6 +56,34 @@ final auth = RefreshInterceptor(
 
 auth.attachTo(apiDio);
 ```
+
+## Session-expired widget
+
+Flutter apps can initialize the optional UI presenter in `main` and provide
+their own dialog widget:
+
+```dart
+Future<void> main() async {
+  await RefreshInit.instance.initialize(
+    sessionExpiredWidget: const SessionExpiredDialog(),
+  );
+  await initDI(get: GetIt.instance);
+  runApp(const MyApp());
+}
+```
+
+Use the same navigator key on `MaterialApp` or `GetMaterialApp`:
+
+```dart
+MaterialApp(
+  navigatorKey: RefreshInit.instance.navigatorKey,
+  // ...
+)
+```
+
+`RefreshInterceptor` uses this presenter when `onSessionExpired` is omitted.
+Presenter deduplicates concurrent expiry events and does not block Dio while
+user interacts with dialog. Explicit callbacks remain supported.
 
 For multiple authenticated clients, attach the same instance:
 
@@ -132,6 +154,9 @@ overwriting the new one.
 Return `null` from `onRefresh` when the server permanently rejects the refresh
 token. The interceptor then clears tokens, according to
 `clearTokensOnRefreshFailure`, and reports session expiry.
+
+A `DioException` from `onRefresh` that matches `shouldRefresh` is handled the
+same way. For example, refresh endpoint 401 automatically expires the session.
 
 Throw for temporary failures such as timeouts, connection errors, and server
 errors. These failures are sent to `onError`; stored tokens remain intact and

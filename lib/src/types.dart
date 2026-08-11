@@ -13,6 +13,8 @@ final class RefreshTokens {
 /// Performs the app-specific refresh request.
 ///
 /// Return null only when the server permanently rejects the refresh token.
+/// A thrown [DioException] matching the interceptor's refresh predicate is
+/// also treated as a permanent rejection.
 /// Throw for transient failures such as timeouts and server errors; transient
 /// failures are reported through [RefreshInterceptorErrorCallback] without
 /// clearing tokens or expiring the session.

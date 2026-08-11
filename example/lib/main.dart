@@ -6,7 +6,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:refresh_interceptor/refresh_interceptor.dart';
 
-void main() => runApp(const ExampleApp());
+Future<void> main() async {
+  await RefreshInit.instance.initialize(
+    sessionExpiredWidget: const _ExampleSessionExpiredDialog(),
+  );
+  runApp(const ExampleApp());
+}
 
 class ExampleApp extends StatelessWidget {
   const ExampleApp({super.key});
@@ -14,6 +19,7 @@ class ExampleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: RefreshInit.instance.navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       home: const DemoPage(),
@@ -52,7 +58,6 @@ class _DemoPageState extends State<DemoPage> {
           refreshToken: 'rotated-refresh',
         );
       },
-      onSessionExpired: () => _log('Session expired'),
     ).attachTo(_dio);
   }
 
@@ -112,6 +117,11 @@ class _DemoPageState extends State<DemoPage> {
                   : const Icon(Icons.play_arrow),
               label: const Text('Run concurrent requests'),
             ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: RefreshInit.instance.showSessionExpired,
+              child: const Text('Show session-expired widget'),
+            ),
             const SizedBox(height: 24),
             Text('Event log', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -128,6 +138,24 @@ class _DemoPageState extends State<DemoPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ExampleSessionExpiredDialog extends StatelessWidget {
+  const _ExampleSessionExpiredDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Session expired'),
+      content: const Text('Please sign in again to continue.'),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
 }

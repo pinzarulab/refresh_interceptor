@@ -1,3 +1,11 @@
+## 0.2.1
+
+- Treated refresh-endpoint authentication rejections as permanent session
+  expiry instead of transient refresh failures.
+- Added regression coverage for a refresh request returning 401.
+- Added singleton `RefreshInit` for initializing an app-provided
+  session-expired widget before dependency injection.
+
 ## 0.2.0
 
 - Kept tokens and session state intact when refresh fails because of a

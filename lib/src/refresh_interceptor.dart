@@ -3,6 +3,7 @@ import 'dart:collection';
 
 import 'package:dio/dio.dart';
 
+import 'refresh_init.dart';
 import 'token_store.dart';
 import 'types.dart';
 
@@ -38,7 +39,7 @@ final class RefreshInterceptor {
   RefreshInterceptor({
     required this.tokenStore,
     required this.onRefresh,
-    required this.onSessionExpired,
+    SessionExpiredCallback? onSessionExpired,
     this.shouldRefresh = _defaultShouldRefresh,
     this.shouldAttachToken = _alwaysAttach,
     this.authorizationHeader = 'Authorization',
@@ -46,7 +47,8 @@ final class RefreshInterceptor {
     this.rejectIfTokenMissing = false,
     this.clearTokensOnRefreshFailure = true,
     this.onError,
-  });
+  }) : onSessionExpired =
+            onSessionExpired ?? RefreshInit.instance.showSessionExpired;
 
   final TokenStore tokenStore;
   final RefreshTokenCallback onRefresh;
@@ -220,6 +222,15 @@ final class RefreshInterceptor {
       resetSession();
       return _RefreshResult(_RefreshStatus.success, session);
     } catch (error, stack) {
+      if (error is DioException && _shouldRefresh(error)) {
+        session ??= _SessionSnapshot(
+          generation: _sessionGeneration,
+          accessToken: null,
+          refreshToken: null,
+        );
+        return _RefreshResult(_RefreshStatus.rejected, session);
+      }
+
       _reportError(error, stack);
       session ??= _SessionSnapshot(
         generation: _sessionGeneration,

@@ -140,6 +140,32 @@ void main() {
       expect(reportedErrors.single, isA<StateError>());
     });
 
+    test('refresh endpoint auth rejection expires the session', () async {
+      final store = MemoryTokenStore('old-access', 'rejected-refresh');
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
+      RefreshInterceptor(
+        tokenStore: store,
+        onRefresh: (_) async {
+          final request = RequestOptions(path: '/refresh');
+          throw DioException(
+            requestOptions: request,
+            response: Response<void>(requestOptions: request, statusCode: 401),
+            type: DioExceptionType.badResponse,
+          );
+        },
+        onSessionExpired: () => expiredCalls++,
+      ).attachTo(dio);
+
+      final error = await _captureError(dio.get<void>('/protected'));
+
+      expect(error, isA<DioException>());
+      expect(expiredCalls, 1);
+      expect(store.accessToken, isNull);
+      expect(store.refreshToken, isNull);
+    });
+
     test('excluded requests never refresh or expire the session', () async {
       final store = MemoryTokenStore('access', 'refresh');
       var refreshCalls = 0;
