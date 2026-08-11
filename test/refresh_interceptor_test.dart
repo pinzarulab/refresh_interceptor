@@ -212,6 +212,28 @@ void main() {
       expect(store.clearCalls, 0);
     });
 
+    test('missing tokens reject without expiring a nonexistent session',
+        () async {
+      final store = MemoryTokenStore(null, null);
+      var expiredCalls = 0;
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter((_) => _json({}, 200));
+      RefreshInterceptor(
+        tokenStore: store,
+        rejectIfTokenMissing: true,
+        onRefresh: (_) async => null,
+        onSessionExpired: () => expiredCalls++,
+      ).attachTo(dio);
+
+      final error = await _captureError(dio.get<void>('/protected'));
+
+      expect(error, isA<DioException>());
+      expect((error as DioException).error, {'reason': 'no_token'});
+      expect(expiredCalls, 0);
+      expect(dio.httpClientAdapter, isA<RecordingAdapter>());
+      expect((dio.httpClientAdapter as RecordingAdapter).requests, isEmpty);
+    });
+
     test('an old refresh cannot overwrite a reset session', () async {
       final store = MemoryTokenStore('old-access', 'old-refresh');
       final refreshStarted = Completer<void>();

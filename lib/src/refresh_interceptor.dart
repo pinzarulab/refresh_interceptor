@@ -45,6 +45,7 @@ final class RefreshInterceptor {
     this.authorizationHeader = 'Authorization',
     this.tokenPrefix = 'Bearer',
     this.rejectIfTokenMissing = false,
+    this.expireSessionOnMissingToken = false,
     this.clearTokensOnRefreshFailure = true,
     this.onError,
   }) : onSessionExpired =
@@ -58,6 +59,7 @@ final class RefreshInterceptor {
   final String authorizationHeader;
   final String tokenPrefix;
   final bool rejectIfTokenMissing;
+  final bool expireSessionOnMissingToken;
   final bool clearTokensOnRefreshFailure;
 
   /// Receives transient refresh, storage, and session callback errors.
@@ -304,7 +306,9 @@ final class _BoundRefreshInterceptor extends Interceptor {
           return;
         }
 
-        await owner._expireSession(session);
+        if (owner.expireSessionOnMissingToken) {
+          await owner._expireSession(session);
+        }
         handler.reject(
           DioException(
             requestOptions: options,

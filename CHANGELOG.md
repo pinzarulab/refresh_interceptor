@@ -1,3 +1,8 @@
+## 0.2.2
+
+- Stopped missing-token request rejection from emitting session expiry by
+  default; added `expireSessionOnMissingToken` for opt-in legacy behavior.
+
 ## 0.2.1
 
 - Treated refresh-endpoint authentication rejections as permanent session

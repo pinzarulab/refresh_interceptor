@@ -134,12 +134,18 @@ final auth = RefreshInterceptor(
         data is Map && data['code'] == 'token_expired';
   },
   rejectIfTokenMissing: true,
+  expireSessionOnMissingToken: false,
   clearTokensOnRefreshFailure: false,
   onError: (error, stackTrace) {
     logger.error('Auth interceptor error', error, stackTrace);
   },
 );
 ```
+
+Missing tokens usually mean user is already logged out, so rejecting a request
+does not show session-expired UI by default. Set
+`expireSessionOnMissingToken: true` only when missing storage must be treated as
+an expired active session.
 
 ## Session lifecycle
 
