@@ -1,5 +1,7 @@
 # Documentation
 
+- [API reference](api-reference.md) — public classes, callbacks, methods,
+  options, and lifecycle semantics.
 - [Package guide](package-guide.md) — install, initialize, configure, and test
   `refresh_interceptor`.
 - [Session API contract](session-api-contract.md) — HTTP contract required by

@@ -1,4 +1,10 @@
-# 0.3.0
+# 0.4.0
+
+- Added complete Dart API documentation for public classes, callbacks,
+  configuration fields, and lifecycle methods.
+- Added a standalone API reference with setup, behavior, and failure semantics.
+
+## 0.3.0
 
 - Removed `TokenStore` and `TokenStoreAdapter`; token storage methods are now
   passed directly to `RefreshInterceptor`.

@@ -9,8 +9,10 @@ import 'package:flutter/material.dart';
 final class RefreshInit {
   RefreshInit._();
 
+  /// Shared session-expiry presenter used by default by interceptors.
   static final RefreshInit instance = RefreshInit._();
 
+  /// Navigator key that must be assigned to the app's root navigator.
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   Widget? _sessionExpiredWidget;
@@ -19,9 +21,17 @@ final class RefreshInit {
   bool _dialogVisible = false;
   bool _presentationScheduled = false;
 
+  /// Whether [initialize] has configured a session-expired widget.
   bool get isInitialized => _sessionExpiredWidget != null;
 
   /// Configures the widget displayed when any interceptor expires a session.
+  ///
+  /// Call this before dependency injection creates `RefreshInterceptor`
+  /// instances that omit an explicit session-expired callback.
+  ///
+  /// [barrierDismissible] controls whether tapping outside closes the dialog.
+  /// [barrierColor] overrides Flutter's default modal barrier color.
+  /// Calling this again replaces the previous widget and dialog options.
   Future<void> initialize({
     required Widget sessionExpiredWidget,
     bool barrierDismissible = false,
@@ -37,6 +47,8 @@ final class RefreshInit {
   /// Shows configured widget once. Concurrent calls are deduplicated.
   ///
   /// Does not wait for dialog closure, so user interaction never blocks Dio.
+  /// If the root navigator is not ready, presentation is retried after the
+  /// next frame. Throws [StateError] when [initialize] was not called.
   void showSessionExpired() {
     final widget = _sessionExpiredWidget;
     if (widget == null) {

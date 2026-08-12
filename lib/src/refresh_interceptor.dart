@@ -35,6 +35,18 @@ final class _RefreshResult {
 /// every authenticated Dio client. All attached clients share one in-flight
 /// refresh operation and one session-expiry notification.
 final class RefreshInterceptor {
+  /// Creates a token-refresh manager.
+  ///
+  /// Storage is supplied through [readAccessToken], [readRefreshToken],
+  /// [saveTokens], and [clearTokens], so existing repositories can be passed
+  /// directly without implementing an adapter.
+  ///
+  /// [onRefresh] must use a Dio client that is not attached to this instance.
+  /// Otherwise, a failed refresh request can recursively trigger another
+  /// refresh.
+  ///
+  /// When [onSessionExpired] is omitted, session expiry is presented through
+  /// [RefreshInit]. Initialize it before creating this interceptor.
   RefreshInterceptor({
     required this.readAccessToken,
     required this.readRefreshToken,
@@ -53,18 +65,56 @@ final class RefreshInterceptor {
   }) : onSessionExpired =
             onSessionExpired ?? RefreshInit.instance.showSessionExpired;
 
+  /// Reads the current access token before authenticated requests and retries.
   final ReadTokenCallback readAccessToken;
+
+  /// Reads the current refresh token when an access-token refresh starts.
   final ReadTokenCallback readRefreshToken;
+
+  /// Persists tokens returned by [onRefresh] before queued requests retry.
+  ///
+  /// A null refresh token means the server did not rotate it. The callback
+  /// must keep the currently stored refresh token in that case.
   final SaveTokensCallback saveTokens;
+
+  /// Removes locally stored authentication tokens after permanent expiry.
   final ClearTokensCallback clearTokens;
+
+  /// Sends the application-specific refresh request.
   final RefreshTokenCallback onRefresh;
+
+  /// Runs once when the current session is permanently expired.
   final SessionExpiredCallback onSessionExpired;
+
+  /// Selects errors that require token refresh. Defaults to HTTP 401.
   final RefreshErrorPredicate shouldRefresh;
+
+  /// Selects requests that receive authentication handling. Defaults to all.
   final RequestPredicate shouldAttachToken;
+
+  /// Header used for the access token. Defaults to `Authorization`.
   final String authorizationHeader;
+
+  /// Authentication scheme prepended to the token. Defaults to `Bearer`.
+  ///
+  /// Set to an empty string to send the raw token value.
   final String tokenPrefix;
+
+  /// Whether requests without an access token are rejected before networking.
+  ///
+  /// Defaults to false, allowing public or anonymous startup requests to
+  /// continue without an authorization header.
   final bool rejectIfTokenMissing;
+
+  /// Whether a missing-token rejection also expires the session.
+  ///
+  /// Has an effect only when [rejectIfTokenMissing] is true. Defaults to false
+  /// because missing tokens commonly mean the user is already logged out.
   final bool expireSessionOnMissingToken;
+
+  /// Whether permanent refresh rejection clears stored tokens.
+  ///
+  /// Defaults to true. Transient refresh failures never clear tokens.
   final bool clearTokensOnRefreshFailure;
 
   /// Receives transient refresh, storage, and session callback errors.
@@ -89,6 +139,9 @@ final class RefreshInterceptor {
   }
 
   /// Adds this refresh manager to every Dio client in [clients].
+  ///
+  /// Duplicate clients are ignored. All attached clients share one in-flight
+  /// refresh operation.
   void attachToAll(Iterable<Dio> clients) {
     for (final dio in clients) {
       attachTo(dio);
@@ -96,6 +149,8 @@ final class RefreshInterceptor {
   }
 
   /// Removes this manager's bound interceptor from [dio].
+  ///
+  /// Calling this for a client that is not attached has no effect.
   void detachFrom(Dio dio) {
     final interceptor = _attached.remove(dio);
     if (interceptor != null) dio.interceptors.remove(interceptor);
@@ -103,8 +158,9 @@ final class RefreshInterceptor {
 
   /// Starts a proactive refresh or joins the refresh currently in flight.
   ///
-  /// Returns false without expiring the session. Callers decide how proactive
-  /// refresh failure affects their UI.
+  /// Returns true only when new tokens were stored. Returns false without
+  /// expiring the session, allowing callers to decide how proactive failure
+  /// affects their UI.
   Future<bool> refreshAccessToken() async {
     final result = await _refreshOnce();
     return result.status == _RefreshStatus.success;

@@ -37,7 +37,7 @@ refresh_interceptor:
   path: "../../../personal projects/refresh_interceptor"
 ```
 
-After publishing version 0.3.0, use `refresh_interceptor: ^0.3.0` in both
+After publishing version 0.4.0, use `refresh_interceptor: ^0.4.0` in both
 packages.
 
 ## Application bootstrap
@@ -188,7 +188,7 @@ Physical device and Mac must share a network. The server must bind to
 | --- | --- |
 | Connection refused on physical phone | Do not use `127.0.0.1`; use Mac LAN IP. |
 | Profile retries with old token | Await ObjectBox `putAsync` and token adapter save. |
-| Refresh 401 does not show dialog | Use package 0.3.0 and ensure 401/403 matches `shouldRefresh`. |
+| Refresh 401 does not show dialog | Use package 0.4.0 and ensure 401/403 matches `shouldRefresh`. |
 | Dialog appears on first launch | Skip profile without access token; keep `expireSessionOnMissingToken: false`. |
 | Duplicate `GlobalKey<FormState>` | Do not keep one GetX login controller across overlapping LoginPage routes. |
 | Endless refresh loop | Keep auth Dio separate and never attach interceptor to it. |

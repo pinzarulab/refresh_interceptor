@@ -1,3 +1,5 @@
+/// Dio token attachment, single-flight refresh, retry, and Flutter
+/// session-expiry presentation.
 library;
 
 export 'src/refresh_interceptor.dart';

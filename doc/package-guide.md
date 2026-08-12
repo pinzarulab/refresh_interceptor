@@ -16,7 +16,7 @@ Published package:
 
 ```yaml
 dependencies:
-  refresh_interceptor: ^0.3.0
+  refresh_interceptor: ^0.4.0
 ```
 
 Local development:
