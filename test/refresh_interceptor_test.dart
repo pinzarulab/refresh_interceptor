@@ -14,7 +14,10 @@ void main() {
       final dio = Dio()..httpClientAdapter = adapter;
       final initialInterceptorCount = dio.interceptors.length;
       final auth = RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         tokenPrefix: 'Token',
         onRefresh: (_) async => null,
         onSessionExpired: () {},
@@ -36,7 +39,10 @@ void main() {
       final firstDio = Dio()..httpClientAdapter = firstAdapter;
       final secondDio = Dio()..httpClientAdapter = secondAdapter;
       final auth = RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async {
           refreshCalls++;
           await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -74,7 +80,10 @@ void main() {
                 : _json({}, 401),
           );
         RefreshInterceptor(
-          tokenStore: store,
+          readAccessToken: store.readAccessToken,
+          readRefreshToken: store.readRefreshToken,
+          saveTokens: store.updateTokens,
+          clearTokens: store.clearTokens,
           onRefresh: (_) async => const RefreshTokens(accessToken: 'new'),
           onSessionExpired: () {},
         ).attachTo(dio);
@@ -94,7 +103,10 @@ void main() {
       final secondDio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       final auth = RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async {
           refreshCalls++;
           await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -124,7 +136,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async => throw StateError('network unavailable'),
         onSessionExpired: () => expiredCalls++,
         onError: (error, _) => reportedErrors.add(error),
@@ -146,7 +161,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async {
           final request = RequestOptions(path: '/refresh');
           throw DioException(
@@ -173,7 +191,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         shouldAttachToken: (request) => !request.path.startsWith('/public'),
         onRefresh: (_) async {
           refreshCalls++;
@@ -200,7 +221,10 @@ void main() {
               : _json({}, 401),
         );
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         rejectIfTokenMissing: true,
         onRefresh: (_) async => null,
         onSessionExpired: () => expiredCalls++,
@@ -219,7 +243,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 200));
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         rejectIfTokenMissing: true,
         onRefresh: (_) async => null,
         onSessionExpired: () => expiredCalls++,
@@ -246,7 +273,10 @@ void main() {
               : _json({}, 401),
         );
       final auth = RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) {
           refreshStarted.complete();
           return finishRefresh.future;
@@ -279,7 +309,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         shouldRefresh: (_) => throw StateError('predicate failed'),
         onRefresh: (_) async => null,
         onSessionExpired: () {},
@@ -301,7 +334,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       final auth = RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async => null,
         onSessionExpired: () => expiredCalls++,
       );
@@ -326,7 +362,10 @@ void main() {
               : _json({}, 401),
         );
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async => const RefreshTokens(accessToken: 'new'),
         onSessionExpired: () => expiredCalls++,
       ).attachTo(dio);
@@ -346,7 +385,10 @@ void main() {
       final dio = Dio()
         ..httpClientAdapter = RecordingAdapter((_) => _json({}, 401));
       RefreshInterceptor(
-        tokenStore: store,
+        readAccessToken: store.readAccessToken,
+        readRefreshToken: store.readRefreshToken,
+        saveTokens: store.updateTokens,
+        clearTokens: store.clearTokens,
         onRefresh: (_) async {
           refreshCalls++;
           return const RefreshTokens(accessToken: 'still-invalid');
@@ -362,22 +404,30 @@ void main() {
       expect(expiredCalls, 1);
     });
 
-    test('TokenStoreAdapter accepts existing method tear-offs', () async {
+    test('accepts existing token method tear-offs directly', () async {
       final existing = MemoryTokenStore('access', 'refresh');
-      final adapter = TokenStoreAdapter(
+      final dio = Dio()
+        ..httpClientAdapter = RecordingAdapter(
+          (_) => _json({'ok': true}, 200),
+        );
+      RefreshInterceptor(
         readAccessToken: existing.readAccessToken,
         readRefreshToken: existing.readRefreshToken,
         saveTokens: existing.updateTokens,
         clearTokens: existing.clearTokens,
-      );
+        onRefresh: (_) async => null,
+        onSessionExpired: () {},
+      ).attachTo(dio);
 
-      await adapter.saveTokens(
-        accessToken: 'new-access',
-        refreshToken: 'new-refresh',
-      );
+      await dio.get<void>('/protected');
 
-      expect(await adapter.readAccessToken(), 'new-access');
-      expect(await adapter.readRefreshToken(), 'new-refresh');
+      expect(
+        (dio.httpClientAdapter as RecordingAdapter)
+            .requests
+            .single
+            .headers['Authorization'],
+        'Bearer access',
+      );
     });
   });
 }
@@ -395,16 +445,14 @@ Future<Object> _captureError(Future<Object?> request) async {
   }
 }
 
-final class MemoryTokenStore implements TokenStore {
+final class MemoryTokenStore {
   MemoryTokenStore(this.accessToken, this.refreshToken);
 
   String? accessToken;
   String? refreshToken;
 
-  @override
   Future<String?> readAccessToken() async => accessToken;
 
-  @override
   Future<String?> readRefreshToken() async => refreshToken;
 
   Future<void> updateTokens(String accessToken, String? refreshToken) async {
@@ -412,38 +460,23 @@ final class MemoryTokenStore implements TokenStore {
     if (refreshToken != null) this.refreshToken = refreshToken;
   }
 
-  @override
-  Future<void> saveTokens({
-    required String accessToken,
-    String? refreshToken,
-  }) =>
-      updateTokens(accessToken, refreshToken);
-
-  @override
   Future<void> clearTokens() async {
     accessToken = null;
     refreshToken = null;
   }
 }
 
-final class LoginDuringReadTokenStore implements TokenStore {
+final class LoginDuringReadTokenStore {
   var _accessReads = 0;
   var clearCalls = 0;
 
-  @override
   Future<String?> readAccessToken() async =>
       _accessReads++ == 0 ? null : 'new-access';
 
-  @override
   Future<String?> readRefreshToken() async => 'new-refresh';
 
-  @override
-  Future<void> saveTokens({
-    required String accessToken,
-    String? refreshToken,
-  }) async {}
+  Future<void> updateTokens(String accessToken, String? refreshToken) async {}
 
-  @override
   Future<void> clearTokens() async => clearCalls++;
 }
 

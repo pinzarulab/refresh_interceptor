@@ -1,4 +1,9 @@
-# 0.2.3
+# 0.3.0
+
+- Removed `TokenStore` and `TokenStoreAdapter`; token storage methods are now
+  passed directly to `RefreshInterceptor`.
+
+## 0.2.3
 
 - Replaced the in-memory example adapter with a runnable Dart HTTP server that
   mirrors the Session API login, refresh, profile, and auth-error responses.

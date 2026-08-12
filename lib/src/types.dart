@@ -2,6 +2,18 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 
+/// Reads one token from app storage.
+typedef ReadTokenCallback = FutureOr<String?> Function();
+
+/// Stores refreshed tokens. A null refresh token means "keep current token".
+typedef SaveTokensCallback = FutureOr<void> Function(
+  String accessToken,
+  String? refreshToken,
+);
+
+/// Removes all locally stored authentication tokens.
+typedef ClearTokensCallback = FutureOr<void> Function();
+
 /// Tokens returned by the app's refresh request.
 final class RefreshTokens {
   const RefreshTokens({required this.accessToken, this.refreshToken});

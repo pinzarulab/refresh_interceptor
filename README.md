@@ -17,18 +17,6 @@ Dio clients.
 
 ## Setup
 
-Use `TokenStoreAdapter` to connect existing storage methods. No extra adapter
-class needed:
-
-```dart
-final tokenStore = TokenStoreAdapter(
-  readAccessToken: authLocal.getAccessToken,
-  readRefreshToken: authLocal.getRefreshToken,
-  saveTokens: authLocal.updateTokens,
-  clearTokens: authLocal.clearTokens,
-);
-```
-
 Create one `RefreshInterceptor` for the authenticated session. Use a separate
 Dio client for refresh calls so refresh never intercepts itself:
 
@@ -37,7 +25,10 @@ final apiDio = Dio(BaseOptions(baseUrl: 'https://api.example.com'));
 final refreshDio = Dio(BaseOptions(baseUrl: 'https://api.example.com'));
 
 final auth = RefreshInterceptor(
-  tokenStore: tokenStore,
+  readAccessToken: authLocal.getAccessToken,
+  readRefreshToken: authLocal.getRefreshToken,
+  saveTokens: authLocal.updateTokens,
+  clearTokens: authLocal.clearTokens,
   onRefresh: (refreshToken) async {
     final response = await refreshDio.post<Map<String, dynamic>>(
       '/authorization/token/refresh/',
@@ -98,9 +89,9 @@ auth.attachToAll([
 All clients now share one in-flight refresh. This matters when servers rotate
 refresh tokens.
 
-## Existing token repositories
+## Token storage callbacks
 
-`TokenStoreAdapter` accepts method tear-offs matching this common API:
+Pass existing storage methods directly. They should match this API:
 
 ```dart
 Future<String?> getAccessToken();
@@ -108,8 +99,6 @@ Future<String?> getRefreshToken();
 Future<void> updateTokens(String accessToken, String? refreshToken);
 Future<void> clearTokens();
 ```
-
-You can also implement `TokenStore` directly.
 
 ## Configuration
 

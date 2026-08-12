@@ -8,7 +8,7 @@ the original request once, and reports permanent session expiry.
 
 Use one `RefreshInterceptor` instance for one authenticated user session.
 Attach that instance to every protected Dio client that shares the same token
-store.
+storage.
 
 ## Install
 
@@ -16,7 +16,7 @@ Published package:
 
 ```yaml
 dependencies:
-  refresh_interceptor: ^0.2.2
+  refresh_interceptor: ^0.3.0
 ```
 
 Local development:
@@ -70,15 +70,13 @@ final authDio = Dio(BaseOptions(baseUrl: apiBaseUrl));
 final appDio = Dio(BaseOptions(baseUrl: apiBaseUrl));
 
 final refreshInterceptor = RefreshInterceptor(
-  tokenStore: TokenStoreAdapter(
-    readAccessToken: tokenStore.getAccessToken,
-    readRefreshToken: tokenStore.getRefreshToken,
-    saveTokens: (accessToken, refreshToken) => tokenStore.saveTokens(
-      accessToken: accessToken,
-      refreshToken: refreshToken,
-    ),
-    clearTokens: tokenStore.clearTokens,
+  readAccessToken: tokenStorage.getAccessToken,
+  readRefreshToken: tokenStorage.getRefreshToken,
+  saveTokens: (accessToken, refreshToken) => tokenStorage.saveTokens(
+    accessToken: accessToken,
+    refreshToken: refreshToken,
   ),
+  clearTokens: tokenStorage.clearTokens,
   onRefresh: (refreshToken) async {
     final response = await authDio.post<Map<String, dynamic>>(
       '/refresh/',
@@ -141,7 +139,7 @@ or account switching:
 
 ```dart
 refreshInterceptor.resetSession();
-await tokenStore.saveTokens(
+await tokenStorage.saveTokens(
   accessToken: accessToken,
   refreshToken: refreshToken,
 );

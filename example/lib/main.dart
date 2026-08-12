@@ -60,7 +60,10 @@ class _DemoPageState extends State<DemoPage> {
     _appDio = Dio(options);
     _tokens = MemoryTokenStore();
     _refreshInterceptor = RefreshInterceptor(
-      tokenStore: _tokens,
+      readAccessToken: _tokens.readAccessToken,
+      readRefreshToken: _tokens.readRefreshToken,
+      saveTokens: _tokens.updateTokens,
+      clearTokens: _tokens.clearTokens,
       onRefresh: (refreshToken) async {
         _refreshCalls++;
         _log('POST /refresh/');
@@ -103,9 +106,9 @@ class _DemoPageState extends State<DemoPage> {
     );
     final data = response.data!;
     _refreshInterceptor.resetSession();
-    await _tokens.saveTokens(
-      accessToken: data['access_token'] as String,
-      refreshToken: data['refresh_token'] as String?,
+    await _tokens.updateTokens(
+      data['access_token'] as String,
+      data['refresh_token'] as String?,
     );
     _log('POST /login/ → stored expired access token');
   }
@@ -241,26 +244,22 @@ class _ExampleSessionExpiredDialog extends StatelessWidget {
   }
 }
 
-final class MemoryTokenStore implements TokenStore {
+final class MemoryTokenStore {
   String? accessToken;
   String? refreshToken;
 
-  @override
   Future<String?> readAccessToken() async => accessToken;
 
-  @override
   Future<String?> readRefreshToken() async => refreshToken;
 
-  @override
-  Future<void> saveTokens({
-    required String accessToken,
+  Future<void> updateTokens(
+    String accessToken,
     String? refreshToken,
-  }) async {
+  ) async {
     this.accessToken = accessToken;
     if (refreshToken != null) this.refreshToken = refreshToken;
   }
 
-  @override
   Future<void> clearTokens() async {
     accessToken = null;
     refreshToken = null;

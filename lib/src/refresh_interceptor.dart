@@ -4,7 +4,6 @@ import 'dart:collection';
 import 'package:dio/dio.dart';
 
 import 'refresh_init.dart';
-import 'token_store.dart';
 import 'types.dart';
 
 const _retriedKey = 'refresh_interceptor.retried';
@@ -37,7 +36,10 @@ final class _RefreshResult {
 /// refresh operation and one session-expiry notification.
 final class RefreshInterceptor {
   RefreshInterceptor({
-    required this.tokenStore,
+    required this.readAccessToken,
+    required this.readRefreshToken,
+    required this.saveTokens,
+    required this.clearTokens,
     required this.onRefresh,
     SessionExpiredCallback? onSessionExpired,
     this.shouldRefresh = _defaultShouldRefresh,
@@ -51,7 +53,10 @@ final class RefreshInterceptor {
   }) : onSessionExpired =
             onSessionExpired ?? RefreshInit.instance.showSessionExpired;
 
-  final TokenStore tokenStore;
+  final ReadTokenCallback readAccessToken;
+  final ReadTokenCallback readRefreshToken;
+  final SaveTokensCallback saveTokens;
+  final ClearTokensCallback clearTokens;
   final RefreshTokenCallback onRefresh;
   final SessionExpiredCallback onSessionExpired;
   final RefreshErrorPredicate shouldRefresh;
@@ -161,8 +166,8 @@ final class RefreshInterceptor {
   Future<_SessionSnapshot> _captureSession() async {
     while (true) {
       final generation = _sessionGeneration;
-      final accessToken = await tokenStore.readAccessToken();
-      final refreshToken = await tokenStore.readRefreshToken();
+      final accessToken = await readAccessToken();
+      final refreshToken = await readRefreshToken();
       if (generation == _sessionGeneration) {
         return _SessionSnapshot(
           generation: generation,
@@ -217,10 +222,7 @@ final class RefreshInterceptor {
         return _RefreshResult(_RefreshStatus.stale, session);
       }
 
-      await tokenStore.saveTokens(
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      );
+      await saveTokens(tokens.accessToken, tokens.refreshToken);
       resetSession();
       return _RefreshResult(_RefreshStatus.success, session);
     } catch (error, stack) {
@@ -258,7 +260,7 @@ final class RefreshInterceptor {
 
     if (clearTokensOnRefreshFailure) {
       try {
-        await tokenStore.clearTokens();
+        await clearTokens();
       } catch (error, stack) {
         _reportError(error, stack);
       }
@@ -289,7 +291,7 @@ final class _BoundRefreshInterceptor extends Interceptor {
     }
 
     try {
-      final accessToken = await owner.tokenStore.readAccessToken();
+      final accessToken = await owner.readAccessToken();
       if (accessToken == null || accessToken.isEmpty) {
         if (!owner.rejectIfTokenMissing) {
           handler.next(options);
