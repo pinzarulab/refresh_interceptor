@@ -175,6 +175,6 @@ See `example/` for runnable Android, iOS, and web Flutter app.
 
 ## More documentation
 
-- [Package guide](docs/package-guide.md)
-- [Session API contract](docs/session-api-contract.md)
-- [TimelyFrontEnd integration](docs/timely-frontend-integration.md)
+- [Package guide](doc/package-guide.md)
+- [Session API contract](doc/session-api-contract.md)
+- [TimelyFrontEnd integration](doc/timely-frontend-integration.md)
